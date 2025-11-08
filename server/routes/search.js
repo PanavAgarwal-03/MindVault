@@ -29,6 +29,10 @@ router.get('/search', verifyToken, async (req, res) => {
     let dbQuery = { userToken };
     let hasFilter = false;
     let detectedFilters = [];
+    
+    // Build OR conditions for flexible matching
+    // Results will appear if ANY of these conditions match
+    let orConditions = [];
 
     // If query exists, try to parse it with Gemini AI first
     if (q && q.trim() && isGeminiAvailable()) {
@@ -74,26 +78,27 @@ Respond with valid JSON only.`;
       const filters = await getGeminiJSON(prompt);
       console.log('Gemini filters:', JSON.stringify(filters, null, 2));
 
-      // Apply AI-detected filters
+      // Apply AI-detected filters - add to OR conditions for flexible matching
       if (filters.type && filters.type !== 'null') {
-        dbQuery.type = filters.type;
+        orConditions.push({ type: filters.type });
         hasFilter = true;
         detectedFilters.push(`Type: ${filters.type}`);
       }
 
       if (filters.topic && filters.topic !== 'null') {
         // Unified category/topic search - search across topicAuto, topicUser, and category
-        dbQuery.$or = [
-          { topicAuto: { $regex: filters.topic, $options: 'i' } },
+        const topicRegex = new RegExp(filters.topic, 'i');
+        orConditions.push(
+          { topicAuto: topicRegex },
           { topicUser: { $in: [filters.topic] } },
-          { category: { $regex: filters.topic, $options: 'i' } }
-        ];
+          { category: topicRegex }
+        );
         hasFilter = true;
         detectedFilters.push(`Topic: ${filters.topic}`);
       }
 
       if (filters.reason && filters.reason !== 'null') {
-        dbQuery.reason = { $regex: filters.reason, $options: 'i' };
+        orConditions.push({ reason: { $regex: filters.reason, $options: 'i' } });
         hasFilter = true;
         detectedFilters.push(`Reason: ${filters.reason}`);
       }
@@ -124,23 +129,20 @@ Respond with valid JSON only.`;
           }
         });
         
-        // Also search in title, description, and selectedText with all keywords
+        // Also search in title, summary, description, and selectedText with all keywords
         const keywordRegex = filters.keywords.filter(k => k.trim().length > 0).join('|');
         if (keywordRegex) {
+          const keywordRegexObj = new RegExp(keywordRegex, 'i');
           keywordConditions.push(
-            { title: { $regex: keywordRegex, $options: 'i' } },
-            { description: { $regex: keywordRegex, $options: 'i' } },
-            { selectedText: { $regex: keywordRegex, $options: 'i' } }
+            { title: keywordRegexObj },
+            { summary: keywordRegexObj },
+            { description: keywordRegexObj },
+            { selectedText: keywordRegexObj }
           );
         }
         
-        // Combine with existing $or conditions if they exist
-        if (dbQuery.$or) {
-          // Merge with existing $or conditions
-          dbQuery.$or = [...dbQuery.$or, ...keywordConditions];
-        } else {
-          dbQuery.$or = keywordConditions;
-        }
+        // Add keyword conditions to OR conditions
+        orConditions.push(...keywordConditions);
         hasFilter = true;
         detectedFilters.push(`Keywords: ${filters.keywords.join(', ')}`);
       }
@@ -176,62 +178,42 @@ Respond with valid JSON only.`;
       req.geminiDateSet = geminiDateSet;
     }
 
-    // Apply manual filters (override AI filters if provided)
+    // Apply manual filters (override AI filters if provided) - add to OR conditions
     if (type && type !== 'all') {
-      dbQuery.type = type;
+      orConditions.push({ type: type });
       hasFilter = true;
     }
 
     if (reason && reason !== 'all') {
-      dbQuery.reason = { $regex: reason, $options: 'i' };
+      orConditions.push({ reason: { $regex: reason, $options: 'i' } });
       hasFilter = true;
     }
 
     // Unified category/topic filter - search across topicAuto, topicUser, and category
     if (category && category !== 'all') {
-      if (dbQuery.$or) {
-        dbQuery.$or.push(
-          { topicAuto: category },
-          { category: category },
-          { topicUser: { $in: [category] } }
-        );
-      } else {
-        dbQuery.$or = [
-          { topicAuto: category },
-          { category: category },
-          { topicUser: { $in: [category] } }
-        ];
-      }
+      const categoryRegex = new RegExp(category, 'i');
+      orConditions.push(
+        { topicAuto: categoryRegex },
+        { category: categoryRegex },
+        { topicUser: { $in: [category] } }
+      );
       hasFilter = true;
     }
 
     if (topicAuto && topicAuto !== 'all') {
-      if (dbQuery.$or) {
-        dbQuery.$or.push(
-          { topicAuto: topicAuto },
-          { category: topicAuto }
-        );
-      } else {
-        dbQuery.$or = [
-          { topicAuto: topicAuto },
-          { category: topicAuto }
-        ];
-      }
+      const topicAutoRegex = new RegExp(topicAuto, 'i');
+      orConditions.push(
+        { topicAuto: topicAutoRegex },
+        { category: topicAutoRegex }
+      );
       hasFilter = true;
     }
 
     if (topicUser && topicUser !== 'all') {
-      if (dbQuery.$or) {
-        dbQuery.$or.push(
-          { topicUser: { $in: [topicUser] } },
-          { category: topicUser }
-        );
-      } else {
-        dbQuery.$or = [
-          { topicUser: { $in: [topicUser] } },
-          { category: topicUser }
-        ];
-      }
+      orConditions.push(
+        { topicUser: { $in: [topicUser] } },
+        { category: { $regex: topicUser, $options: 'i' } }
+      );
       hasFilter = true;
     }
 
@@ -299,6 +281,34 @@ Respond with valid JSON only.`;
       }
     }
 
+    // Build final query with OR conditions for flexible matching
+    // Results will appear if ANY condition in orConditions matches
+    // Price and date filters are AND conditions (must match)
+    if (orConditions.length > 0) {
+      // Combine userToken (AND) with OR conditions and any price/date filters
+      const queryParts = [
+        { userToken: userToken },
+        { $or: orConditions }
+      ];
+      
+      // Add price filter as AND condition if it exists
+      if (dbQuery.price) {
+        queryParts.push({ price: dbQuery.price });
+        delete dbQuery.price; // Remove from dbQuery since it's in $and
+      }
+      
+      // Add date filter as AND condition if it exists
+      if (dbQuery.createdAt) {
+        queryParts.push({ createdAt: dbQuery.createdAt });
+        delete dbQuery.createdAt; // Remove from dbQuery since it's in $and
+      }
+      
+      dbQuery.$and = queryParts;
+      // Remove userToken from top level since it's now in $and
+      delete dbQuery.userToken;
+    }
+    // If no OR conditions, dbQuery still has userToken and any price/date filters as AND conditions
+
     // Only perform semantic search if we have a query and filters were extracted
     let results = [];
     
@@ -306,7 +316,7 @@ Respond with valid JSON only.`;
       // Generate embedding for search query
       const queryEmbedding = await generateEmbedding(q.trim());
 
-      // Get thoughts matching the filter
+      // Get thoughts matching the filter (now using flexible OR conditions)
       const thoughts = await Thought.find(dbQuery)
         .sort({ createdAt: -1 })
         .limit(1000);
@@ -338,6 +348,15 @@ Respond with valid JSON only.`;
           }
           if (thought.selectedText && thought.selectedText.toLowerCase().includes(searchLower)) {
             relevance += 0.1;
+          }
+          
+          // Also check topicAuto and topicUser for matches
+          if (thought.topicAuto && thought.topicAuto.toLowerCase().includes(searchLower)) {
+            relevance += 0.2;
+          }
+          if (thought.topicUser && Array.isArray(thought.topicUser) && 
+              thought.topicUser.some(t => t.toLowerCase().includes(searchLower))) {
+            relevance += 0.15;
           }
           
           return {
@@ -374,25 +393,37 @@ Respond with valid JSON only.`;
         similarity: 1.0 // No relevance score when no query
       }));
     } else if (q && q.trim()) {
-      // Query but no filters extracted - perform comprehensive text search including keywords
+      // Query but no filters extracted - perform comprehensive text search using OR conditions
+      // Search across keywords, title, summary, topicAuto, topicUser, and reason
+      // Results appear if ANY field matches
       const searchRegex = new RegExp(q.trim(), 'i');
       const searchTerms = q.trim().split(/\s+/).filter(term => term.length > 0);
       
-      // Build comprehensive search query
+      // Build comprehensive search query with OR conditions
+      // Results appear if ANY of these conditions match
       const searchConditions = [
         { title: searchRegex },
+        { summary: searchRegex },
         { description: searchRegex },
         { selectedText: searchRegex },
         { reason: searchRegex },
         { topicAuto: searchRegex },
         { category: searchRegex },
         { platform: searchRegex },
-        { summary: searchRegex },
         // Search in keywords array - MongoDB regex works directly on array elements
         { keywords: searchRegex }
       ];
       
-      // If multiple search terms, also try searching for each term individually in keywords
+      // Search in topicUser array - need to check each term individually
+      searchTerms.forEach(term => {
+        if (term.length > 0) {
+          const termRegex = new RegExp(term, 'i');
+          // MongoDB can match regex on array elements
+          searchConditions.push({ topicUser: termRegex });
+        }
+      });
+      
+      // If multiple search terms, also try searching for each term individually in other fields
       if (searchTerms.length > 1) {
         searchTerms.forEach(term => {
           if (term.length > 0) {
@@ -400,7 +431,10 @@ Respond with valid JSON only.`;
             searchConditions.push(
               { keywords: termRegex },
               { title: termRegex },
-              { description: termRegex }
+              { summary: termRegex },
+              { description: termRegex },
+              { topicAuto: termRegex },
+              { topicUser: termRegex }
             );
           }
         });
@@ -424,8 +458,18 @@ Respond with valid JSON only.`;
         if (thought.keywords && thought.keywords.some(k => k.toLowerCase().includes(searchLower))) {
           relevance += 0.3; // Keyword match is important
         }
+        if (thought.summary && thought.summary.toLowerCase().includes(searchLower)) {
+          relevance += 0.25; // Summary match is also important (especially for images)
+        }
+        if (thought.topicAuto && thought.topicAuto.toLowerCase().includes(searchLower)) {
+          relevance += 0.2;
+        }
         if (thought.description && thought.description.toLowerCase().includes(searchLower)) {
           relevance += 0.2;
+        }
+        if (thought.topicUser && Array.isArray(thought.topicUser) && 
+            thought.topicUser.some(t => t.toLowerCase().includes(searchLower))) {
+          relevance += 0.15;
         }
         if (thought.selectedText && thought.selectedText.toLowerCase().includes(searchLower)) {
           relevance += 0.1;
