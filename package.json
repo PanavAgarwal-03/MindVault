@@ -1,0 +1,25 @@
+{
+  "name": "mindvault",
+  "version": "1.0.0",
+  "description": "MindVault - AI-Powered Second Brain",
+  "scripts": {
+    "install:server": "cd server && npm install",
+    "install:client": "cd client && npm install",
+    "install:all": "npm run install:server && npm run install:client",
+    "start:server": "cd server && npm start",
+    "start:client": "cd client && npm run dev",
+    "dev:server": "cd server && npm run dev",
+    "build:client": "cd client && npm run build"
+  },
+  "keywords": [
+    "chrome-extension",
+    "mern",
+    "ai",
+    "semantic-search",
+    "brain",
+    "thought-capture",
+    "mindvault"
+  ],
+  "author": "Panav Agarwal",
+  "license": "ISC"
+}

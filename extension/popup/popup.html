@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MindVault</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🧠 MindVault</h1>
+      <p class="subtitle">Capture your thoughts instantly</p>
+    </div>
+
+    <!-- Login Section (shown when not authenticated) -->
+    <div class="login-section" id="loginSection">
+      <h3>Login to MindVault</h3>
+      <div class="input-group">
+        <label>Username:</label>
+        <input type="text" id="loginUsername" placeholder="Enter your username">
+      </div>
+      <div class="input-group">
+        <label>Password:</label>
+        <input type="password" id="loginPassword" placeholder="Enter your password">
+      </div>
+      <div class="action-buttons">
+        <button id="loginSubmit" class="btn btn-primary">Login</button>
+        <button id="openSignup" class="btn btn-outline">Sign Up</button>
+      </div>
+      <div id="loginError" class="error-message hidden"></div>
+    </div>
+
+    <!-- Main Action Buttons (shown when authenticated) -->
+    <div class="actions hidden" id="mainActions">
+      <button id="saveLinkBtn" class="btn btn-secondary">
+        🔗 Save Link
+      </button>
+      <button id="saveTextBtn" class="btn btn-secondary">
+        📝 Save Selected Text
+      </button>
+      <button id="takeScreenshotBtn" class="btn btn-secondary">
+        📸 Take Screenshot
+      </button>
+      <button id="viewDashboardBtn" class="btn btn-outline">
+        🎯 View Dashboard
+      </button>
+      <button id="logoutBtn" class="btn btn-outline">
+        🚪 Logout
+      </button>
+    </div>
+
+    <!-- Save Link Section -->
+    <div class="save-section hidden" id="saveLinkSection">
+      <h3>Save Link</h3>
+      <div class="input-group">
+        <label>Title:</label>
+        <input type="text" id="linkTitle" placeholder="Auto-filled from page">
+      </div>
+      <div class="input-group">
+        <label>URL:</label>
+        <input type="url" id="linkUrl" placeholder="Auto-filled from page">
+      </div>
+      <div class="input-group">
+        <label>Categories (comma-separated, optional):</label>
+        <input type="text" id="linkCategories" placeholder="e.g., AI, programming, design">
+        <p class="hint" style="margin-top: 4px; font-size: 11px; color: #9ca3af;">
+          💡 Reason will be auto-detected by AI based on the link content
+        </p>
+      </div>
+      <div class="action-buttons">
+        <button id="saveLinkSubmit" class="btn btn-primary">Save</button>
+        <button id="cancelLink" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Save Text Section -->
+    <div class="save-section hidden" id="saveTextSection">
+      <h3>Save Selected Text</h3>
+      <div class="input-group">
+        <label>Selected Text:</label>
+        <textarea id="selectedText" rows="4" placeholder="Loading selected text..."></textarea>
+      </div>
+      <div class="input-group">
+        <label>Reason:</label>
+        <select id="textReason">
+          <option value="to view later" selected>To view later</option>
+          <option value="to read later">To read later</option>
+          <option value="to buy later">To buy later</option>
+          <option value="to watch later">To watch later</option>
+          <option value="to research later">To research later</option>
+          <option value="important reference">Important reference</option>
+          <option value="personal note">Personal note</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Categories (comma-separated):</label>
+        <input type="text" id="textCategories" placeholder="e.g., AI, programming, design">
+      </div>
+      <div class="action-buttons">
+        <button id="saveTextSubmit" class="btn btn-primary">📝 Save Text</button>
+        <button id="cancelText" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Screenshot Section -->
+    <div class="save-section hidden" id="screenshotSection">
+      <h3>Screenshot</h3>
+      <div class="input-group">
+        <label>Screenshot Preview:</label>
+        <div id="screenshotPreview" class="screenshot-preview">
+          <p class="text-center text-gray-500">Click "Take Screenshot" to capture</p>
+        </div>
+        <button id="captureScreenshotBtn" class="btn btn-secondary mt-2">📸 Take Screenshot</button>
+      </div>
+      <div class="input-group">
+        <label>Title:</label>
+        <input type="text" id="screenshotTitle" placeholder="Screenshot title">
+      </div>
+      <div class="input-group">
+        <label>Reason:</label>
+        <select id="screenshotReason">
+          <option value="to view later" selected>To view later</option>
+          <option value="to read later">To read later</option>
+          <option value="to buy later">To buy later</option>
+          <option value="to watch later">To watch later</option>
+          <option value="to research later">To research later</option>
+          <option value="important reference">Important reference</option>
+          <option value="personal note">Personal note</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Categories (comma-separated):</label>
+        <input type="text" id="screenshotCategories" placeholder="e.g., AI, programming, design">
+      </div>
+      <div class="action-buttons">
+        <button id="saveScreenshotSubmit" class="btn btn-primary">📸 Save Screenshot</button>
+        <button id="cancelScreenshot" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p class="hint">💡 Tip: Use Ctrl+Shift+S to open this popup, Ctrl+Shift+V for dashboard</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
