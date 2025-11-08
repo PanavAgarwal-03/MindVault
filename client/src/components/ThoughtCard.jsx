@@ -27,7 +27,8 @@ function ThoughtCard({ thought, onUpdate }) {
     if (!url) return '';
     try {
       const domain = new URL(url).hostname;
-      return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+      // Use Google's favicon service for reliable favicon fetching
+      return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
     } catch {
       return '';
     }
@@ -134,7 +135,8 @@ function ThoughtCard({ thought, onUpdate }) {
       case 'video':
         return (
           <div className="space-y-3">
-            {fileUrl && (
+            {/* Additional preview image if available and different from URL */}
+            {fileUrl && fileUrl !== thought.url && (
               <img
                 src={fileUrl}
                 alt={thought.title}
@@ -143,6 +145,7 @@ function ThoughtCard({ thought, onUpdate }) {
                 onError={(e) => { e.target.style.display = 'none'; }}
               />
             )}
+            {/* Link URL display */}
             {thought.url && (
               <a
                 href={thought.url}
@@ -160,27 +163,35 @@ function ThoughtCard({ thought, onUpdate }) {
       case 'image':
       case 'gif':
         return (
-          <div 
-            className="cursor-pointer"
-            onClick={() => {
-              if (fileUrl) {
-                setPreviewImage(fileUrl);
-              }
-            }}
-          >
-            {fileUrl ? (
-              <img
-                src={fileUrl}
-                alt={thought.title}
-                className="w-full h-48 object-cover rounded-lg hover:opacity-90 transition-opacity"
-                onError={(e) => {
-                  e.target.parentElement.innerHTML = '<div class="w-full h-48 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center"><span class="text-gray-400">Image not available</span></div>';
-                }}
-              />
-            ) : (
-              <div className="w-full h-48 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-                <span className="text-gray-400">No image</span>
-              </div>
+          <div className="space-y-2">
+            <div 
+              className="cursor-pointer"
+              onClick={() => {
+                if (fileUrl) {
+                  setPreviewImage(fileUrl);
+                }
+              }}
+            >
+              {fileUrl ? (
+                <img
+                  src={fileUrl}
+                  alt={thought.title}
+                  className="w-full h-48 object-cover rounded-lg hover:opacity-90 transition-opacity"
+                  onError={(e) => {
+                    e.target.parentElement.innerHTML = '<div class="w-full h-48 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center"><span class="text-gray-400">Image not available</span></div>';
+                  }}
+                />
+              ) : (
+                <div className="w-full h-48 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                  <span className="text-gray-400">No image</span>
+                </div>
+              )}
+            </div>
+            {/* AI-generated summary for images */}
+            {thought.summary && (
+              <p className="text-gray-500 dark:text-gray-400 text-xs italic px-2">
+                "{thought.summary}"
+              </p>
             )}
           </div>
         );
@@ -240,7 +251,7 @@ function ThoughtCard({ thought, onUpdate }) {
         whileHover={{ y: -4, transition: { duration: 0.2 } }}
         className="h-full"
       >
-        <Card className="backdrop-blur-lg bg-white/70 dark:bg-gray-800/70 border border-gray-200/50 dark:border-gray-700/50 hover:shadow-xl hover:border-primary-300 dark:hover:border-primary-700 transition-all duration-300 cursor-pointer relative h-full flex flex-col group">
+        <Card className="backdrop-blur-lg bg-white/70 dark:bg-gray-800/70 border border-gray-200/50 dark:border-gray-700/50 hover:shadow-xl hover:border-primary-300 dark:hover:border-primary-700 transition-all duration-300 cursor-pointer relative h-full flex flex-col group overflow-hidden">
           {/* Delete Button */}
           <Button
             variant="ghost"
@@ -261,17 +272,47 @@ function ThoughtCard({ thought, onUpdate }) {
             )}
           </Button>
 
+          {/* Favicon Banner for Links (shown at top of card) */}
+          {(type === 'link' || type === 'video') && thought.url && (
+            <a
+              href={thought.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block relative bg-gradient-to-r from-gray-900 to-gray-800 hover:from-gray-800 hover:to-gray-700 flex items-center justify-center h-16 transition-all duration-200 group/link"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={getFavicon(thought.url)}
+                alt="favicon"
+                className="h-8 w-8 rounded-full"
+                onError={(e) => {
+                  // Fallback: show first letter of domain
+                  e.target.style.display = 'none';
+                  const parent = e.target.parentElement;
+                  if (!parent.querySelector('.favicon-fallback')) {
+                    const fallback = document.createElement('div');
+                    fallback.className = 'favicon-fallback h-8 w-8 rounded-full bg-primary-500 flex items-center justify-center text-white font-bold text-sm';
+                    try {
+                      const domain = new URL(thought.url).hostname;
+                      fallback.textContent = domain.charAt(0).toUpperCase();
+                    } catch {
+                      fallback.textContent = '🔗';
+                    }
+                    parent.insertBefore(fallback, e.target);
+                  }
+                }}
+              />
+              <ExternalLink
+                size={18}
+                className="absolute right-4 text-gray-300 group-hover/link:text-white transition-colors"
+              />
+            </a>
+          )}
+
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-2 pr-8">
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <span className="text-xl flex-shrink-0">{getTypeIcon(type)}</span>
-                {(type === 'link' || type === 'video') && thought.url && getFavicon(thought.url) && (
-                  <img
-                    src={getFavicon(thought.url)}
-                    alt="favicon"
-                    className="w-4 h-4 flex-shrink-0"
-                  />
-                )}
                 <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white line-clamp-2 truncate">
                   {thought.title}
                 </CardTitle>

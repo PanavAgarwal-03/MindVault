@@ -74,11 +74,97 @@ router.post('/saveThought', verifyToken, async (req, res) => {
     let finalPrice = price !== undefined && price !== null ? price : null;
     let platform = 'generic';
     let keywords = [];
+    let summary = null;
+
+    // Determine image URL for analysis
+    // Priority: fileUrl (UploadThing URL or local file) > imageUrl (from req.body) > url (if it's an image)
+    let imageUrlForAnalysis = null;
+    
+    if (fileUrl) {
+      // If fileUrl is already a full URL (UploadThing), use it directly
+      // If it's a local path, convert to absolute URL
+      if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+        imageUrlForAnalysis = fileUrl;
+      } else if (fileUrl.startsWith('/')) {
+        // Local file path - convert to absolute URL
+        imageUrlForAnalysis = `${req.protocol}://${req.get('host')}${fileUrl}`;
+      } else {
+        imageUrlForAnalysis = fileUrl;
+      }
+    } else if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://') || imageUrl.startsWith('/'))) {
+      // Use imageUrl from req.body if it's a valid URL
+      if (imageUrl.startsWith('/')) {
+        imageUrlForAnalysis = `${req.protocol}://${req.get('host')}${imageUrl}`;
+      } else {
+        imageUrlForAnalysis = imageUrl;
+      }
+    } else if ((type === 'image' || type === 'gif') && url) {
+      // Use url if type is image/gif
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        imageUrlForAnalysis = url;
+      } else if (url.startsWith('/')) {
+        imageUrlForAnalysis = `${req.protocol}://${req.get('host')}${url}`;
+      } else {
+        imageUrlForAnalysis = url;
+      }
+    }
 
     if (isGeminiAvailable()) {
       try {
-        // Ask Gemini to analyze and classify the item
-        const prompt = `Analyze this content and respond in valid JSON:
+        let prompt;
+        let aiData = {};
+
+        // Use visual AI analysis if type is image/gif and we have an image URL
+        if ((type === 'image' || type === 'gif') && imageUrlForAnalysis) {
+          prompt = `Analyze this image and return a JSON with:
+
+{
+  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "summary": "A brief 1-2 sentence description of what's visible in this image",
+  "reason": "to view later" | "to read later" | "to buy later" | "to research later" | "important reference" | "personal note",
+  "topicAuto": "One or two-word category like 'design', 'architecture', 'screenshot', 'diagram', 'UI', 'code', 'product', etc.",
+  "type": "image" | "gif"
+}
+
+Rules:
+- Keywords: Extract 3-5 meaningful words that describe the visual content (e.g., "diagram", "screenshot", "UI design", "architecture", "code snippet").
+- Summary: Provide a concise description of what the image shows (e.g., "A screenshot of a code editor showing a React component" or "A diagram showing system architecture with multiple services").
+- Reason: Infer why someone might save this image based on its content.
+- topicAuto: Categorize based on visual content (design, code, architecture, product, etc.).
+
+Respond with valid JSON only.`;
+
+          console.log('Analyzing image with Gemini:', imageUrlForAnalysis);
+          try {
+            aiData = await getGeminiJSON(prompt, imageUrlForAnalysis);
+            console.log('Gemini Image Analysis Result:', JSON.stringify(aiData, null, 2));
+            
+            // Extract summary from image analysis
+            if (aiData.summary) {
+              summary = aiData.summary;
+            }
+            
+            // Also extract keywords and topicAuto from image analysis
+            if (aiData.keywords && Array.isArray(aiData.keywords)) {
+              keywords = aiData.keywords.filter(k => k && k.trim()).slice(0, 5);
+            } else if (aiData.keywords && typeof aiData.keywords === 'string') {
+              keywords = aiData.keywords.split(',').map(k => k.trim()).filter(k => k).slice(0, 5);
+            }
+            
+            if (aiData.topicAuto) {
+              finalTopicAuto = aiData.topicAuto;
+            }
+            
+            if (aiData.reason) {
+              finalReason = aiData.reason;
+            }
+          } catch (imageAnalysisError) {
+            console.error('Image analysis failed, continuing without AI metadata:', imageAnalysisError);
+            // Continue without image analysis if it fails - will use text-based analysis or defaults
+          }
+        } else {
+          // Text-based analysis for non-image types
+          prompt = `Analyze this content and respond in valid JSON:
 
 Title: ${title}
 URL: ${url || 'N/A'}
@@ -106,8 +192,9 @@ Rules:
 
 Respond with valid JSON only.`;
 
-        const aiData = await getGeminiJSON(prompt);
-        console.log('Gemini Save Result:', JSON.stringify(aiData, null, 2));
+          aiData = await getGeminiJSON(prompt);
+          console.log('Gemini Save Result:', JSON.stringify(aiData, null, 2));
+        }
 
         // Use AI data to override user-provided values
         if (aiData && Object.keys(aiData).length > 0) {
@@ -128,14 +215,27 @@ Respond with valid JSON only.`;
             }
           }
 
-          // Reason - AI determines the correct reason
+          // Reason - AI determines the correct reason (works for both images and text)
           if (aiData.reason) {
             finalReason = aiData.reason;
           }
 
-          // TopicAuto - AI determines the category
+          // TopicAuto - AI determines the category (works for both images and text)
           if (aiData.topicAuto) {
             finalTopicAuto = aiData.topicAuto;
+          }
+          
+          // Keywords - AI extracts keywords (works for both images and text)
+          if (aiData.keywords && Array.isArray(aiData.keywords)) {
+            keywords = aiData.keywords.filter(k => k && k.trim()).slice(0, 5); // Limit to 5 keywords
+          } else if (aiData.keywords && typeof aiData.keywords === 'string') {
+            // If keywords come as comma-separated string
+            keywords = aiData.keywords.split(',').map(k => k.trim()).filter(k => k).slice(0, 5);
+          }
+          
+          // Summary - AI-generated summary (primarily for images, but can be used for other types)
+          if (aiData.summary) {
+            summary = aiData.summary;
           }
 
           // Platform - AI detects the platform
@@ -163,14 +263,6 @@ Respond with valid JSON only.`;
             } else {
               platform = 'generic';
             }
-          }
-
-          // Keywords - AI extracts keywords
-          if (aiData.keywords && Array.isArray(aiData.keywords)) {
-            keywords = aiData.keywords.filter(k => k && k.trim()).slice(0, 5); // Limit to 5 keywords
-          } else if (aiData.keywords && typeof aiData.keywords === 'string') {
-            // If keywords come as comma-separated string
-            keywords = aiData.keywords.split(',').map(k => k.trim()).filter(k => k).slice(0, 5);
           }
 
           // Price - AI extracts price with regex fallback
@@ -273,8 +365,8 @@ Respond with valid JSON only.`;
     // Determine category - unified category field that mirrors topicAuto or main user category
     const category = finalTopicAuto || (topicUser && Array.isArray(topicUser) && topicUser.length > 0 ? topicUser[0] : (topicUser && typeof topicUser === 'string' ? topicUser.split(',')[0].trim() : 'general'));
 
-    // Combine text for embedding generation (include keywords for better semantic search)
-    const textForEmbedding = `${title} ${description || ''} ${selectedText || ''} ${finalReason || ''} ${keywords.join(' ')}`.trim();
+    // Combine text for embedding generation (include keywords and summary for better semantic search)
+    const textForEmbedding = `${title} ${description || ''} ${selectedText || ''} ${summary || ''} ${finalReason || ''} ${keywords.join(' ')}`.trim();
 
     // Generate embedding
     const embedding = await generateEmbedding(textForEmbedding);
@@ -296,6 +388,7 @@ Respond with valid JSON only.`;
       price: finalPrice,
       selectedText: selectedText || '',
       description: description || '',
+      summary: summary, // AI-generated summary (especially for images)
       userToken: userToken,
       embedding
     });

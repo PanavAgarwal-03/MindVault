@@ -1,25 +1,19 @@
 const { createUploadthing } = require("uploadthing/express");
 
-// UploadThing requires the token to be available
-// It will read from process.env.UPLOADTHING_TOKEN automatically
-// Make sure it's set in your .env file and the server has been restarted
+// UploadThing requires the token/credentials to be available
+// It will read from process.env.UPLOADTHING_TOKEN or UPLOADTHING_SECRET/UPLOADTHING_APP_ID automatically
+// Make sure they're set in your .env file and the server has been restarted
 const f = createUploadthing();
 
 const fileRouter = {
   fileUpload: f({
-    pdf: { maxFileSize: "10MB", maxFileCount: 1 },
     image: { maxFileSize: "10MB", maxFileCount: 1 },
-    video: { maxFileSize: "50MB", maxFileCount: 1 },
-    audio: { maxFileSize: "10MB", maxFileCount: 1 },
-    blob: { maxFileSize: "10MB", maxFileCount: 1 }, // Generic file type for docs
+    pdf: { maxFileSize: "20MB", maxFileCount: 1 },
+    doc: { maxFileSize: "10MB", maxFileCount: 1 },
+    gif: { maxFileSize: "5MB", maxFileCount: 1 },
   })
-    .middleware(async (req, res) => {
-      // Optional: Add authentication middleware here
-      // For now, we'll handle auth in the route itself
-      return {};
-    })
     .onUploadComplete(async ({ file }) => {
-      console.log("File uploaded:", file.url);
+      console.log("✅ File uploaded successfully:", file.url);
       return { fileUrl: file.url };
     }),
 };

@@ -108,14 +108,39 @@ Respond with valid JSON only.`;
       }
 
       if (filters.keywords && Array.isArray(filters.keywords) && filters.keywords.length > 0) {
-        // Use keywords field for search, and also search in title
-        dbQuery.$or = dbQuery.$or || [];
-        dbQuery.$or.push(
-          { keywords: { $in: filters.keywords } },
-          { title: { $regex: filters.keywords.join('|'), $options: 'i' } },
-          { description: { $regex: filters.keywords.join('|'), $options: 'i' } },
-          { selectedText: { $regex: filters.keywords.join('|'), $options: 'i' } }
-        );
+        // Use keywords field for search - properly search within keywords array
+        // Build keyword search conditions that work with MongoDB arrays
+        const keywordConditions = [];
+        
+        // For each keyword, create conditions to search in the keywords array
+        filters.keywords.forEach(keyword => {
+          const keywordTrimmed = keyword.trim();
+          if (keywordTrimmed.length > 0) {
+            // MongoDB can match regex directly on array fields - it searches each element
+            // Search in keywords array using regex (MongoDB searches array elements)
+            keywordConditions.push({
+              keywords: new RegExp(keywordTrimmed, 'i')
+            });
+          }
+        });
+        
+        // Also search in title, description, and selectedText with all keywords
+        const keywordRegex = filters.keywords.filter(k => k.trim().length > 0).join('|');
+        if (keywordRegex) {
+          keywordConditions.push(
+            { title: { $regex: keywordRegex, $options: 'i' } },
+            { description: { $regex: keywordRegex, $options: 'i' } },
+            { selectedText: { $regex: keywordRegex, $options: 'i' } }
+          );
+        }
+        
+        // Combine with existing $or conditions if they exist
+        if (dbQuery.$or) {
+          // Merge with existing $or conditions
+          dbQuery.$or = [...dbQuery.$or, ...keywordConditions];
+        } else {
+          dbQuery.$or = keywordConditions;
+        }
         hasFilter = true;
         detectedFilters.push(`Keywords: ${filters.keywords.join(', ')}`);
       }
@@ -297,15 +322,27 @@ Respond with valid JSON only.`;
         } else {
           // Fallback to text match if no embedding
           const searchLower = q.toLowerCase();
-          const textMatch = (
-            thought.title.toLowerCase().includes(searchLower) ||
-            (thought.description && thought.description.toLowerCase().includes(searchLower)) ||
-            (thought.selectedText && thought.selectedText.toLowerCase().includes(searchLower)) ||
-            (thought.keywords && thought.keywords.some(k => k.toLowerCase().includes(searchLower)))
-          );
+          let relevance = 0.1;
+          
+          if (thought.title && thought.title.toLowerCase().includes(searchLower)) {
+            relevance += 0.4;
+          }
+          if (thought.keywords && thought.keywords.some(k => k.toLowerCase().includes(searchLower))) {
+            relevance += 0.3;
+          }
+          if (thought.summary && thought.summary.toLowerCase().includes(searchLower)) {
+            relevance += 0.25;
+          }
+          if (thought.description && thought.description.toLowerCase().includes(searchLower)) {
+            relevance += 0.2;
+          }
+          if (thought.selectedText && thought.selectedText.toLowerCase().includes(searchLower)) {
+            relevance += 0.1;
+          }
+          
           return {
             ...thought.toObject(),
-            similarity: textMatch ? 0.5 : 0.1
+            similarity: Math.min(relevance, 1.0)
           };
         }
       });
@@ -337,24 +374,71 @@ Respond with valid JSON only.`;
         similarity: 1.0 // No relevance score when no query
       }));
     } else if (q && q.trim()) {
-      // Query but no filters extracted - perform text search including keywords
+      // Query but no filters extracted - perform comprehensive text search including keywords
+      const searchRegex = new RegExp(q.trim(), 'i');
+      const searchTerms = q.trim().split(/\s+/).filter(term => term.length > 0);
+      
+      // Build comprehensive search query
+      const searchConditions = [
+        { title: searchRegex },
+        { description: searchRegex },
+        { selectedText: searchRegex },
+        { reason: searchRegex },
+        { topicAuto: searchRegex },
+        { category: searchRegex },
+        { platform: searchRegex },
+        { summary: searchRegex },
+        // Search in keywords array - MongoDB regex works directly on array elements
+        { keywords: searchRegex }
+      ];
+      
+      // If multiple search terms, also try searching for each term individually in keywords
+      if (searchTerms.length > 1) {
+        searchTerms.forEach(term => {
+          if (term.length > 0) {
+            const termRegex = new RegExp(term, 'i');
+            searchConditions.push(
+              { keywords: termRegex },
+              { title: termRegex },
+              { description: termRegex }
+            );
+          }
+        });
+      }
+      
       const thoughts = await Thought.find({
         userToken,
-        $or: [
-          { title: { $regex: q, $options: 'i' } },
-          { description: { $regex: q, $options: 'i' } },
-          { selectedText: { $regex: q, $options: 'i' } },
-          { reason: { $regex: q, $options: 'i' } },
-          { keywords: { $in: [new RegExp(q, 'i')] } }
-        ]
+        $or: searchConditions
       })
       .sort({ createdAt: -1 })
       .limit(parseInt(limit));
 
-      results = thoughts.map(thought => ({
-        ...thought.toObject(),
-        similarity: 0.6 // Default similarity for text matches
-      }));
+      results = thoughts.map(thought => {
+        // Calculate a simple relevance score based on where the match was found
+        const searchLower = q.toLowerCase();
+        let relevance = 0.3; // Base relevance
+        
+        if (thought.title && thought.title.toLowerCase().includes(searchLower)) {
+          relevance += 0.4; // Title match is most important
+        }
+        if (thought.keywords && thought.keywords.some(k => k.toLowerCase().includes(searchLower))) {
+          relevance += 0.3; // Keyword match is important
+        }
+        if (thought.description && thought.description.toLowerCase().includes(searchLower)) {
+          relevance += 0.2;
+        }
+        if (thought.selectedText && thought.selectedText.toLowerCase().includes(searchLower)) {
+          relevance += 0.1;
+        }
+        
+        return {
+          ...thought.toObject(),
+          similarity: Math.min(relevance, 1.0)
+        };
+      });
+      
+      // Sort by relevance (similarity)
+      results.sort((a, b) => b.similarity - a.similarity);
     } else {
       // No query and no filters - return limited default results
       const thoughts = await Thought.find({ userToken })

@@ -108,6 +108,7 @@ function Upload() {
         topicUser,
         type,
         url: fileUrl || (type === 'link' ? fileUrl : ''),
+        fileUrl: fileUrl, // Include fileUrl for image analysis (UploadThing URL or local path)
         pageText: description // Include description as pageText for AI processing
       };
 
@@ -254,6 +255,7 @@ function Upload() {
 
                       <UploadButton
                         endpoint="fileUpload"
+                        url={import.meta.env.VITE_UPLOADTHING_URL || 'http://localhost:5000/api/uploadthing'}
                         onClientUploadComplete={handleUploadComplete}
                         onUploadError={handleUploadError}
                         onUploadBegin={handleUploadStart}

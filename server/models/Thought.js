@@ -65,6 +65,10 @@ const thoughtSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  summary: {
+    type: String,
+    default: null
+  },
   userToken: {
     type: String,
     required: true,
@@ -91,7 +95,7 @@ thoughtSchema.index({ platform: 1, userToken: 1 });
 thoughtSchema.index({ keywords: 1 }); // Index for keyword searches
 thoughtSchema.index({ title: 1 }); // Index for title searches
 
-// Create compound text index for full-text search on title, keywords, topicAuto, category, and reason
+// Create compound text index for full-text search on title, keywords, topicAuto, category, reason, and summary
 // Note: MongoDB only allows one text index per collection, so we create a compound one
 try {
   thoughtSchema.index({
@@ -99,12 +103,14 @@ try {
     keywords: 'text',
     topicAuto: 'text',
     category: 'text',
-    reason: 'text'
+    reason: 'text',
+    summary: 'text'
   }, {
     name: 'text_search_index',
     weights: {
       title: 10,
       keywords: 5,
+      summary: 4,
       topicAuto: 3,
       category: 3,
       reason: 2

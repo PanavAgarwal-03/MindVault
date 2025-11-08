@@ -25,16 +25,59 @@ try {
 /**
  * Get structured JSON response from Gemini
  * @param {string} prompt - The prompt to send to Gemini
+ * @param {string} imageUrl - Optional image URL to analyze
  * @returns {Promise<Object>} - Parsed JSON object from Gemini's response
  */
-async function getGeminiJSON(prompt) {
+async function getGeminiJSON(prompt, imageUrl = null) {
   if (!model) {
     console.warn('Gemini model not available. Returning empty object.');
     return {};
   }
 
   try {
-    const result = await model.generateContent(prompt);
+    let result;
+    
+    // If imageUrl is provided, analyze the image
+    if (imageUrl) {
+      try {
+        // Fetch the image
+        const fetch = require('node-fetch');
+        const imageResponse = await fetch(imageUrl);
+        
+        if (!imageResponse.ok) {
+          console.error(`Failed to fetch image: ${imageResponse.statusText}`);
+          // Fallback to text-only analysis
+          result = await model.generateContent(prompt);
+        } else {
+          // Get image data as buffer
+          const imageBuffer = await imageResponse.arrayBuffer();
+          const imageBase64 = Buffer.from(imageBuffer).toString('base64');
+          
+          // Determine MIME type from response or URL
+          const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
+          
+          // Use the Google Generative AI SDK's image support
+          // The SDK supports base64 images directly
+          result = await model.generateContent([
+            prompt,
+            {
+              inlineData: {
+                data: imageBase64,
+                mimeType: contentType
+              }
+            }
+          ]);
+        }
+      } catch (imageError) {
+        console.error('Error fetching/processing image:', imageError);
+        // Fallback to text-only analysis
+        result = await model.generateContent(prompt);
+      }
+    } else {
+      // Text-only prompt
+      result = await model.generateContent(prompt);
+    }
+    
     const text = result.response.text();
     
     // Log raw response for debugging

@@ -32,29 +32,32 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const { createRouteHandler } = require("uploadthing/express");
 const { fileRouter } = require("./uploadthing");
 
-// Verify UploadThing token is loaded
-if (!process.env.UPLOADTHING_TOKEN) {
-  console.warn('⚠️  WARNING: UPLOADTHING_TOKEN not found in environment variables');
-  console.warn('   UploadThing uploads will not work. Please add UPLOADTHING_TOKEN to your .env file');
+// Verify UploadThing credentials are loaded
+// UploadThing supports both token-based (UPLOADTHING_TOKEN) and app-based (UPLOADTHING_SECRET + UPLOADTHING_APP_ID) auth
+const hasToken = process.env.UPLOADTHING_TOKEN;
+const hasAppCredentials = process.env.UPLOADTHING_SECRET && process.env.UPLOADTHING_APP_ID;
+
+if (!hasToken && !hasAppCredentials) {
+  console.warn('⚠️  WARNING: UploadThing credentials not found');
+  console.warn('   Add either UPLOADTHING_TOKEN or UPLOADTHING_SECRET + UPLOADTHING_APP_ID to your .env file');
 } else {
-  console.log('✅ UploadThing token loaded successfully');
+  console.log('✅ UploadThing credentials loaded successfully');
 }
 
 // UploadThing route handler
-// Note: UploadThing reads UPLOADTHING_TOKEN from process.env automatically
-// Make sure it's set in your .env file and server is restarted
-if (!process.env.UPLOADTHING_TOKEN) {
-  console.error('❌ UPLOADTHING_TOKEN not found! UploadThing will not work.');
-  console.error('   Please add UPLOADTHING_TOKEN to your server/.env file');
-  console.error('   Then restart your server');
+// Note: UploadThing reads credentials from process.env automatically
+if (!hasToken && !hasAppCredentials) {
+  console.error('❌ UploadThing credentials not found! UploadThing will not work.');
+  console.error('   Please add credentials to your server/.env file and restart the server');
 } else {
   try {
     app.use("/api/uploadthing", createRouteHandler({ 
       router: fileRouter,
     }));
-    console.log('✅ UploadThing route handler configured');
+    console.log('✅ UploadThing route handler configured at /api/uploadthing');
   } catch (error) {
     console.error('❌ Error setting up UploadThing:', error.message);
+    console.error('   Stack:', error.stack);
   }
 }
 

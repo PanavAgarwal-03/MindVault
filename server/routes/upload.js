@@ -111,10 +111,47 @@ router.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
     let finalTopicAuto = topicAuto || 'general';
     let platform = 'generic';
     let keywords = [];
+    let summary = null;
+
+    // Build full file URL for image analysis (use absolute URL for external access)
+    const fullFileUrl = req.protocol + '://' + req.get('host') + fileUrl;
 
     if (isGeminiAvailable()) {
       try {
-        const prompt = `Analyze this uploaded file and return structured JSON:
+        let prompt;
+        let aiData = {};
+
+        // Use visual AI analysis if uploaded file is an image/gif
+        if ((detectedType === 'image' || detectedType === 'gif')) {
+          prompt = `Analyze this image and return a JSON with:
+
+{
+  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "summary": "A brief 1-2 sentence description of what's visible in this image",
+  "reason": "to view later" | "to read later" | "to buy later" | "to research later" | "important reference" | "personal note",
+  "topicAuto": "One or two-word category like 'design', 'architecture', 'screenshot', 'diagram', 'UI', 'code', 'product', etc.",
+  "type": "image" | "gif"
+}
+
+Rules:
+- Keywords: Extract 3-5 meaningful words that describe the visual content (e.g., "diagram", "screenshot", "UI design", "architecture", "code snippet").
+- Summary: Provide a concise description of what the image shows (e.g., "A screenshot of a code editor showing a React component" or "A diagram showing system architecture with multiple services").
+- Reason: Infer why someone might save this image based on its content.
+- topicAuto: Categorize based on visual content (design, code, architecture, product, etc.).
+
+Respond with valid JSON only.`;
+
+          console.log('Analyzing uploaded image with Gemini:', fullFileUrl);
+          aiData = await getGeminiJSON(prompt, fullFileUrl);
+          console.log('Gemini Image Analysis Result (upload):', JSON.stringify(aiData, null, 2));
+          
+          // Extract summary from image analysis
+          if (aiData.summary) {
+            summary = aiData.summary;
+          }
+        } else {
+          // Text-based analysis for non-image files (PDFs, docs, etc.)
+          prompt = `Analyze this uploaded file and return structured JSON:
 
 Title: ${title}
 File Type: ${detectedType}
@@ -136,8 +173,9 @@ Respond only in valid JSON format:
   "keywords": ["document", "pdf", "reference"]
 }`;
 
-        const aiData = await getGeminiJSON(prompt);
-        console.log('Gemini upload analysis:', JSON.stringify(aiData, null, 2));
+          aiData = await getGeminiJSON(prompt);
+          console.log('Gemini upload analysis:', JSON.stringify(aiData, null, 2));
+        }
         
         if (aiData && Object.keys(aiData).length > 0) {
           // Use AI-determined type if provided
@@ -163,6 +201,11 @@ Respond only in valid JSON format:
           } else if (aiData.keywords && typeof aiData.keywords === 'string') {
             keywords = aiData.keywords.split(',').map(k => k.trim()).filter(k => k).slice(0, 5);
           }
+          
+          // Extract summary (primarily for images)
+          if (aiData.summary) {
+            summary = aiData.summary;
+          }
         }
       } catch (aiError) {
         console.error('Gemini AI categorization error:', aiError);
@@ -173,8 +216,8 @@ Respond only in valid JSON format:
     // Determine category - unified category field that mirrors topicAuto or main user category
     const category = finalTopicAuto || (topicUser && Array.isArray(topicUser) && topicUser.length > 0 ? (typeof topicUser === 'string' ? JSON.parse(topicUser)[0] : topicUser[0]) : (topicUser && typeof topicUser === 'string' ? topicUser.split(',')[0].trim() : 'general'));
 
-    // Generate embedding from title, description, extracted text, and keywords
-    const textForEmbedding = `${title} ${extractedText || description || ''} ${finalReason || ''} ${keywords.join(' ')}`.trim();
+    // Generate embedding from title, description, extracted text, summary, and keywords
+    const textForEmbedding = `${title} ${extractedText || description || ''} ${summary || ''} ${finalReason || ''} ${keywords.join(' ')}`.trim();
     const embedding = await generateEmbedding(textForEmbedding);
 
     // Create thought
@@ -194,6 +237,7 @@ Respond only in valid JSON format:
       description: description || extractedText || '',
       selectedText: (detectedType === 'pdf' || detectedType === 'doc') ? extractedText : (description || ''),
       pageText: (detectedType === 'pdf' || detectedType === 'doc') ? extractedText : (pageText || ''),
+      summary: summary, // AI-generated summary (especially for images)
       userToken: userToken,
       embedding
     });
